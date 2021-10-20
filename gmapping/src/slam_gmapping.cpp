@@ -271,6 +271,7 @@ void SlamGMapping::startLiveSlam()
   entropy_publisher_ = private_nh_.advertise<std_msgs::Float64>("entropy", 1, true);
   sst_ = node_.advertise<nav_msgs::OccupancyGrid>("map", 1, true);
   sstm_ = node_.advertise<nav_msgs::MapMetaData>("map_metadata", 1, true);
+  state = node_.advertise<geometry_msgs::PoseWithCovarianceStamped>("gmapping_pose",1,true);
   ss_ = node_.advertiseService("dynamic_map", &SlamGMapping::mapCallback, this);
   scan_filter_sub_ = new message_filters::Subscriber<sensor_msgs::LaserScan>(node_, "scan", 5);
   scan_filter_ = new tf::MessageFilter<sensor_msgs::LaserScan>(*scan_filter_sub_, tf_, odom_frame_, 5);
@@ -286,6 +287,7 @@ void SlamGMapping::startReplay(const std::string & bag_fname, std::string scan_t
   entropy_publisher_ = private_nh_.advertise<std_msgs::Float64>("entropy", 1, true);
   sst_ = node_.advertise<nav_msgs::OccupancyGrid>("map", 1, true);
   sstm_ = node_.advertise<nav_msgs::MapMetaData>("map_metadata", 1, true);
+  state = node_.advertise<geometry_msgs::PoseWithCovarianceStamped>("gmapping_pose",1,true);
   ss_ = node_.advertiseService("dynamic_map", &SlamGMapping::mapCallback, this);
   
   rosbag::Bag bag;
@@ -624,7 +626,26 @@ SlamGMapping::laserCallback(const sensor_msgs::LaserScan::ConstPtr& scan)
   }
 
   GMapping::OrientedPoint odom_pose;
-
+  GMapping::GridSlamProcessor::Particle best =
+          gsp_->getParticles()[gsp_->getBestParticleIndex()];
+  double *variance = computePoseCov();
+  if(variance!=NULL)
+  {
+    geometry_msgs::PoseWithCovarianceStamped pose;
+    tf::Quaternion quat;
+    quat.setRPY(0.0, 0.0, best.node->pose.theta);
+    tf::quaternionTFToMsg(quat, pose.pose.pose.orientation);
+    pose.header.stamp = ros::Time::now();
+    pose.header.seq = laser_count_;
+    pose.header.frame_id = "map";
+    pose.pose.pose.position.x = best.node->pose.x;
+    pose.pose.pose.position.y = best.node->pose.y;
+    pose.pose.pose.position.z = 0.0;    
+    pose.pose.covariance[0] = variance[0];
+    pose.pose.covariance[1] = variance[1];
+    pose.pose.covariance[2] = variance[2];
+    state.publish(pose);
+  }
   if(addScan(*scan, odom_pose))
   {
     ROS_DEBUG("scan processed");
@@ -672,6 +693,34 @@ SlamGMapping::computePoseEntropy()
   return -entropy;
 }
 
+double* 
+SlamGMapping::computePoseCov()
+{
+  double covariance[36];
+  double var[3] = {0.0,0.0,0.0};
+  GMapping::GridSlamProcessor::Particle best =
+          gsp_->getParticles()[gsp_->getBestParticleIndex()];
+  GMapping::GridSlamProcessor::TNode* n = best.node;
+  double mu_x = n->pose.x;
+  double mu_y = n->pose.y;
+  double mu_theta = n->pose.theta;
+  int i = 0;
+  for(std::vector<GMapping::GridSlamProcessor::Particle>::const_iterator it = gsp_->getParticles().begin();
+    it != gsp_->getParticles().end();
+    ++it)
+  {
+    var[0] += abs(it->weight)*(it->pose.x-mu_x)*(it->pose.x-mu_x);
+    var[1] += abs(it->weight)*(it->pose.y-mu_y)*(it->pose.y-mu_y);
+    var[2] += abs(it->weight)*(it->pose.theta-mu_theta)*(it->pose.theta-mu_theta);  
+    i++;  
+  }
+  std::cout << "Variance is x: " << var[0] << " y: "<< var[1] << " theta : " << var[2] << "\n";
+  std::cout<< "Number of particles is " << i << "\n";
+  double* variance = var;
+  return variance;
+}
+
+
 void
 SlamGMapping::updateMap(const sensor_msgs::LaserScan& scan)
 {
@@ -689,7 +738,9 @@ SlamGMapping::updateMap(const sensor_msgs::LaserScan& scan)
   GMapping::GridSlamProcessor::Particle best =
           gsp_->getParticles()[gsp_->getBestParticleIndex()];
   std_msgs::Float64 entropy;
+  
   entropy.data = computePoseEntropy();
+  
   if(entropy.data > 0.0)
     entropy_publisher_.publish(entropy);
 
