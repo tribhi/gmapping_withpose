@@ -714,8 +714,8 @@ SlamGMapping::computePoseCov()
     var[2] += abs(it->weight)*(it->pose.theta-mu_theta)*(it->pose.theta-mu_theta);  
     i++;  
   }
-  std::cout << "Variance is x: " << var[0] << " y: "<< var[1] << " theta : " << var[2] << "\n";
-  std::cout<< "Number of particles is " << i << "\n";
+  // std::cout << "Variance is x: " << var[0] << " y: "<< var[1] << " theta : " << var[2] << "\n";
+  // std::cout<< "Number of particles is " << i << "\n";
   double* variance = var;
   return variance;
 }
