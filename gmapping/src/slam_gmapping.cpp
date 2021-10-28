@@ -705,14 +705,27 @@ SlamGMapping::computePoseCov()
   double mu_y = n->pose.y;
   double mu_theta = n->pose.theta;
   int i = 0;
+  double weight_sum = 0;
   for(std::vector<GMapping::GridSlamProcessor::Particle>::const_iterator it = gsp_->getParticles().begin();
     it != gsp_->getParticles().end();
     ++it)
   {
-    var[0] += abs(it->weight)*(it->pose.x-mu_x)*(it->pose.x-mu_x);
-    var[1] += abs(it->weight)*(it->pose.y-mu_y)*(it->pose.y-mu_y);
-    var[2] += abs(it->weight)*(it->pose.theta-mu_theta)*(it->pose.theta-mu_theta);  
+    double x_var = (it->pose.x-mu_x)*(it->pose.x-mu_x);
+    double y_var = (it->pose.y-mu_y)*(it->pose.y-mu_y);
+    double theta_ver = (it->pose.theta-mu_theta)*(it->pose.theta-mu_theta);
+    var[0] += abs(it->weight)*x_var;
+    var[1] += abs(it->weight)*y_var;
+    var[2] += abs(it->weight)*theta_ver;
+    weight_sum += abs(it->weight);
     i++;  
+
+  }
+
+  if (weight_sum > 0)
+  {
+    var[0] = var[0]/weight_sum;
+    var[1] = var[1]/weight_sum;
+    var[2] = var[2]/weight_sum;
   }
   // std::cout << "Variance is x: " << var[0] << " y: "<< var[1] << " theta : " << var[2] << "\n";
   // std::cout<< "Number of particles is " << i << "\n";
